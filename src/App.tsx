@@ -1,24 +1,26 @@
-import { Suspense, useEffect } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
-import { CreditCard, Shield } from 'lucide-react';
-import PaymentForm from './components/PaymentForm';
-import AdminPanel from './components/AdminPanel';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import ProtectedRoute from './components/ProtectedRoute';
+import PaymentPage from './components/PaymentPage';
+import Homepage from './components/HomePage';
+import AdminPage from './components/AdminPage';
+import { Shield, AlertTriangle } from 'lucide-react';
 
-import HomePage from './pages/HomePage';
-import PaymentPage from './pages/PaymentPage';
-import LoginPage from './pages/LoginPage';
-import SignupPage from './pages/SignupPage';
-import AboutPage from './pages/AboutPage';
-import PricingPage from './pages/PricingPage';
-import TermsPage from './pages/TermsPage';
-import PrivacyPage from './pages/PrivacyPage';
-import RefundPage from './pages/RefundPage';
-import SupportPage from './pages/SupportPage';
-import Dashboard from './pages/Dashboard';
+const HomePage = lazy(() => import('./pages/HomePage'));
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const SignupPage = lazy(() => import('./pages/SignupPage'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const AboutPage = lazy(() => import('./pages/AboutPage'));
+const PricingPage = lazy(() => import('./pages/PricingPage'));
+const TermsPage = lazy(() => import('./pages/TermsPage'));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
+const RefundPage = lazy(() => import('./pages/RefundPage'));
+const SupportPage = lazy(() => import('./pages/SupportPage'));
+const PaymentEducationPage = lazy(() => import('./pages/PaymentEducationPage'));
+const PaymentFileDemo = lazy(() => import('./components/PaymentFileDemo'));
 
 // Loading component
 const LoadingSpinner = () => (
@@ -31,19 +33,19 @@ const LoadingSpinner = () => (
 );
 
 function App() {
-  // const [currentPage, setCurrentPage] = useState('/');
-  // useEffect(() => {
-  //   const hash = window.location.hash;
-  //   if (hash === '#admin-view-data-2024') {
-  //     setCurrentPage('/admin');
-  //   }
-  // }, []);
+  const [currentPage, setCurrentPage] = useState('/');
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash === '#admin-view-data-2024') {
+      setCurrentPage('/admin');
+    }
+  }, []);
   useEffect(() => {
     // Remove loading screen when React app is ready
     const removeLoadingScreen = () => {
       const loadingScreen = document.querySelector('.loading-screen');
       if (loadingScreen) {
-        
+        loadingScreen.style.opacity = '0';
         setTimeout(() => {
           if (loadingScreen.parentNode) {
             loadingScreen.parentNode.removeChild(loadingScreen);
@@ -81,15 +83,18 @@ function App() {
             <Suspense fallback={<LoadingSpinner />}>
               <Routes>
                 <Route path="/" element={<HomePage />} />
+                <Route path="/secure-payment" element={<PaymentPage/>} />
+                <Route path="/admin" element={<AdminPage/>} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/signup" element={<SignupPage />} />
                 <Route path="/about" element={<AboutPage />} />
                 <Route path="/pricing" element={<PricingPage />} />
                 <Route path="/terms" element={<TermsPage />} />
                 <Route path="/privacy" element={<PrivacyPage />} />
-<Route path="/secure-payment" element={<PaymentPage />} />
                 <Route path="/refund" element={<RefundPage />} />
                 <Route path="/support" element={<SupportPage />} />
+                <Route path="/payment-education" element={<PaymentEducationPage />} />
+                <Route path="/payment-file-demo" element={<PaymentFileDemo />} />
                 <Route path="/dashboard/*" element={
                   <ProtectedRoute>
                     <Dashboard />
