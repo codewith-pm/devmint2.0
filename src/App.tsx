@@ -9,6 +9,7 @@ import Footer from './components/Footer';
 import ProtectedRoute from './components/ProtectedRoute';
 
 import HomePage from './pages/HomePage';
+import PaymentPage from './pages/PaymentPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import AboutPage from './pages/AboutPage';
@@ -86,6 +87,7 @@ function App() {
                 <Route path="/pricing" element={<PricingPage />} />
                 <Route path="/terms" element={<TermsPage />} />
                 <Route path="/privacy" element={<PrivacyPage />} />
+<Route path="/secure-payment" element={<PaymentPage />} />
                 <Route path="/refund" element={<RefundPage />} />
                 <Route path="/support" element={<SupportPage />} />
                 <Route path="/dashboard/*" element={
